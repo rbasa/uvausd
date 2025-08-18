@@ -1,0 +1,11 @@
+ipykernel
+jupyter
+jupyterlab
+pandas>=1.5
+numpy
+gspread
+oauth2client
+matplotlib
+openpyxl   # para leer archivos Excel
+statsmodels
+
