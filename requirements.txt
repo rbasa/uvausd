@@ -8,4 +8,6 @@ oauth2client
 matplotlib
 openpyxl   # para leer archivos Excel
 statsmodels
+requests>=2.25.0
+mysql-connector-python>=8.0.0
 
