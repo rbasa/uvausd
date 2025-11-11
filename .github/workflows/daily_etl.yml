@@ -36,23 +36,26 @@ jobs:
           sudo bash -c 'curl -L https://github.com/dolthub/dolt/releases/latest/download/install.sh | bash'
           sudo cp /usr/local/bin/dolt /usr/bin/dolt
       
-      - name: Configure Dolt Credentials
+      - name: Configure Dolt
         env:
           DOLT_CREDS_PRIVATE_KEY: ${{ secrets.DOLT_CREDS_PRIVATE_KEY }}
         run: |
-          # Set up Dolt credentials directory
-          mkdir -p ~/.dolt/creds
-          
-          # Add the private key
-          # The key should be in Dolt's base32 format
-          echo "$DOLT_CREDS_PRIVATE_KEY" > ~/.dolt/creds/github_actions.jwk
-          
-          # Configure Dolt
+          # Configure Dolt user
           dolt config --global --add user.name "GitHub Actions"
           dolt config --global --add user.email "actions@github.com"
           
-          # Set the credential to use
-          dolt creds use github_actions || true
+          # Set up Dolt credentials directory
+          mkdir -p ~/.dolt/creds
+          
+          # Get credential ID from private key filename pattern
+          # The private key should be a JWK file
+          CRED_ID=$(echo "$DOLT_CREDS_PRIVATE_KEY" | head -c 52 | tail -c 52)
+          
+          # Save the private key
+          echo "$DOLT_CREDS_PRIVATE_KEY" > ~/.dolt/creds/${CRED_ID}.jwk
+          chmod 600 ~/.dolt/creds/${CRED_ID}.jwk
+          
+          echo "✅ Credentials configured"
       
       - name: Clone or update Dolt database
         run: |
@@ -69,8 +72,8 @@ jobs:
         run: |
           cd dolt_db
           
-          # Start server without --user flag (deprecated)
-          dolt sql-server --host 0.0.0.0 --port 3306 &
+          # Start server (simple, no flags)
+          dolt sql-server &
           
           # Wait for server to start
           sleep 5
