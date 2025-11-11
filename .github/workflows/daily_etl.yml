@@ -68,10 +68,17 @@ jobs:
       - name: Start Dolt SQL Server
         run: |
           cd dolt_db
-          dolt sql-server --host 0.0.0.0 --port 3306 --user user --password "" &
+          
+          # Start server without --user flag (deprecated)
+          dolt sql-server --host 0.0.0.0 --port 3306 &
           
           # Wait for server to start
           sleep 5
+          
+          # Create user with permissions
+          dolt sql -q "CREATE USER IF NOT EXISTS 'user'@'localhost' IDENTIFIED BY ''"
+          dolt sql -q "GRANT ALL PRIVILEGES ON *.* TO 'user'@'localhost'"
+          dolt sql -q "FLUSH PRIVILEGES"
           
           # Test connection
           dolt sql -q "SELECT 1"
