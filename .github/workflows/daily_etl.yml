@@ -1,0 +1,122 @@
+name: Daily ETL Update
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC (11 PM Argentina time previous day)
+    - cron: '0 2 * * *'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      days_back:
+        description: 'Days to update (default: 7)'
+        required: false
+        default: '7'
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Install Dolt
+        run: |
+          sudo bash -c 'curl -L https://github.com/dolthub/dolt/releases/latest/download/install.sh | bash'
+          sudo cp /usr/local/bin/dolt /usr/bin/dolt
+      
+      - name: Configure Dolt Credentials
+        env:
+          DOLT_CREDS_PRIVATE_KEY: ${{ secrets.DOLT_CREDS_PRIVATE_KEY }}
+        run: |
+          # Set up Dolt credentials directory
+          mkdir -p ~/.dolt/creds
+          
+          # Add the private key
+          # The key should be in Dolt's base32 format
+          echo "$DOLT_CREDS_PRIVATE_KEY" > ~/.dolt/creds/github_actions.jwk
+          
+          # Configure Dolt
+          dolt config --global --add user.name "GitHub Actions"
+          dolt config --global --add user.email "actions@github.com"
+          
+          # Set the credential to use
+          dolt creds use github_actions || true
+      
+      - name: Clone or update Dolt database
+        run: |
+          # Clone the database if it doesn't exist (using SSH)
+          if [ ! -d "dolt_db" ]; then
+            dolt clone rbasa/macroeconomia dolt_db
+          else
+            cd dolt_db
+            dolt pull
+            cd ..
+          fi
+      
+      - name: Start Dolt SQL Server
+        run: |
+          cd dolt_db
+          dolt sql-server --host 0.0.0.0 --port 3306 --user user --password "" &
+          
+          # Wait for server to start
+          sleep 5
+          
+          # Test connection
+          dolt sql -q "SELECT 1"
+      
+      - name: Run ETL Update
+        env:
+          DOLT_DB: "mysql://user:@localhost:3306/macroeconomia"
+          UPDATE_DAYS: ${{ github.event.inputs.days_back || '7' }}
+        run: |
+          python etl/daily_update.py
+      
+      - name: Commit changes to Dolt
+        run: |
+          cd dolt_db
+          
+          # Check if there are changes
+          if ! dolt diff --stat | grep -q "Diff"; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          
+          # Add and commit changes
+          dolt add fx_rate
+          dolt commit -m "Daily ETL update $(date '+%Y-%m-%d %H:%M UTC')"
+      
+      - name: Push to DoltHub
+        run: |
+          cd dolt_db
+          
+          # Check if there are commits to push
+          if git rev-list @{u}.. 2>/dev/null | grep -q .; then
+            dolt push origin main
+            echo "✅ Pushed to DoltHub"
+          else
+            echo "⏸️  Nothing to push"
+          fi
+      
+      - name: Stop Dolt SQL Server
+        if: always()
+        run: |
+          pkill -f "dolt sql-server" || true
+      
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Daily ETL update failed"
+          echo "Check logs for details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
