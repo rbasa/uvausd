@@ -73,7 +73,7 @@ jobs:
           cd dolt_db
           
           # Start server (simple, no flags)
-          dolt sql-server &
+          dolt sql-server
           
           # Wait for server to start
           sleep 5
