@@ -72,19 +72,28 @@ jobs:
         run: |
           cd dolt_db
           
-          # Start server
-          dolt sql-server
+          # Start server in background
+          nohup dolt sql-server > server.log 2>&1 &
+          SERVER_PID=$!
           
-          # Wait for server to start
-          sleep 5
+          # Wait for server to be ready
+          echo "Waiting for server to start..."
+          for i in {1..30}; do
+            if dolt sql -q "SELECT 1" 2>/dev/null; then
+              echo "✅ Server ready!"
+              break
+            fi
+            echo "  Waiting... ($i/30)"
+            sleep 1
+          done
           
           # Create user with permissions
+          echo "Creating database user..."
           dolt sql -q "CREATE USER IF NOT EXISTS 'user'@'localhost' IDENTIFIED BY ''"
           dolt sql -q "GRANT ALL PRIVILEGES ON *.* TO 'user'@'localhost'"
           dolt sql -q "FLUSH PRIVILEGES"
           
-          # Test connection
-          dolt sql -q "SELECT 1"
+          echo "✅ SQL Server running (PID: $SERVER_PID)"
       
       - name: Run ETL Update
         env:
