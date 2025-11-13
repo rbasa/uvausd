@@ -68,70 +68,55 @@ jobs:
             cd ..
           fi
       
-      - name: Start Dolt SQL Server
-        run: |
-          cd dolt_db
-          
-          # Start server in background
-          nohup dolt sql-server > server.log 2>&1 &
-          SERVER_PID=$!
-          
-          # Wait for server to be ready
-          echo "Waiting for server to start..."
-          for i in {1..30}; do
-            if dolt sql -q "SELECT 1" 2>/dev/null; then
-              echo "✅ Server ready!"
-              break
-            fi
-            echo "  Waiting... ($i/30)"
-            sleep 1
-          done
-          
-          # Create user with permissions
-          echo "Creating database user..."
-          dolt sql -q "CREATE USER IF NOT EXISTS 'user'@'localhost' IDENTIFIED BY ''"
-          dolt sql -q "GRANT ALL PRIVILEGES ON *.* TO 'user'@'localhost'"
-          dolt sql -q "FLUSH PRIVILEGES"
-          
-          echo "✅ SQL Server running (PID: $SERVER_PID)"
-      
-      - name: Run ETL Update
+      - name: Start Dolt SQL Server and run ETL
         env:
           DOLT_DB: "mysql://user:@localhost:3306/macroeconomia"
           UPDATE_DAYS: ${{ github.event.inputs.days_back || '7' }}
         run: |
+          set -euo pipefail
+          cd dolt_db
+
+          # Start server detached and save PID
+          nohup dolt sql-server > server.log 2>&1 & echo $! > /tmp/dolt_server.pid
+
+          # Wait for server to accept connections
+          echo "Waiting for dolt sql-server to become ready..."
+          for i in $(seq 1 30); do
+            if dolt sql -q "SELECT 1" >/dev/null 2>&1; then
+              echo "Server ready!"
+              break
+            fi
+            echo "  waiting... ($i/30)"
+            sleep 1
+          done
+
+          # Create user & grants (ignore errors if already present)
+          dolt sql -q "CREATE USER IF NOT EXISTS 'user'@'localhost' IDENTIFIED BY ''" || true
+          dolt sql -q "GRANT ALL PRIVILEGES ON *.* TO 'user'@'localhost'" || true
+          dolt sql -q "FLUSH PRIVILEGES" || true
+
+          cd ..
+
+          # Run ETL
           python etl/daily_update.py
-      
-      - name: Commit changes to Dolt
-        run: |
+
+          # Commit changes if any
           cd dolt_db
-          
-          # Check if there are changes
-          if ! dolt diff --stat | grep -q "Diff"; then
-            echo "No changes to commit"
-            exit 0
-          fi
-          
-          # Add and commit changes
-          dolt add fx_rate
-          dolt commit -m "Daily ETL update $(date '+%Y-%m-%d %H:%M UTC')"
-      
-      - name: Push to DoltHub
-        run: |
-          cd dolt_db
-          
-          # Check if there are commits to push
-          if git rev-list @{u}.. 2>/dev/null | grep -q .; then
-            dolt push origin main
-            echo "✅ Pushed to DoltHub"
+          if dolt status --porcelain | grep -q .; then
+            dolt add -A
+            dolt commit -m "Daily ETL update $(date -u '+%Y-%m-%d %H:%M UTC')" || true
+            dolt push origin main || true
           else
-            echo "⏸️  Nothing to push"
+            echo "No changes to commit"
           fi
-      
-      - name: Stop Dolt SQL Server
-        if: always()
-        run: |
-          pkill -f "dolt sql-server" || true
+
+          # Stop server
+          if [ -f /tmp/dolt_server.pid ]; then
+            kill $(cat /tmp/dolt_server.pid) || true
+            rm -f /tmp/dolt_server.pid
+          else
+            pkill -f "dolt sql-server" || true
+          fi
       
       - name: Notify on failure
         if: failure()
