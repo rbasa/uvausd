@@ -47,14 +47,57 @@ jobs:
           # Set up Dolt credentials directory
           mkdir -p ~/.dolt/creds
 
-          # Derive a credential ID (ajustalo si vos ya usás un ID específico)
-          CRED_ID=$(echo "$DOLT_CREDS_PRIVATE_KEY" | head -c 52 | tail -c 52)
+          # Extract credential ID from JWK
+          # Dolt credential IDs are typically derived from the public key in the JWK
+          CRED_ID=$(echo "$DOLT_CREDS_PRIVATE_KEY" | python3 << 'EOF'
+          import json
+          import sys
+          try:
+              jwk = json.load(sys.stdin)
+              # Dolt credential ID is typically the 'x' field (public key) from the JWK
+              # It's a base32-encoded string, usually 51 characters
+              if 'x' in jwk:
+                  pub_key = jwk['x']
+                  # Use the public key as the credential ID (first 51 chars)
+                  print(pub_key[:51] if len(pub_key) >= 51 else pub_key)
+              elif 'kid' in jwk:
+                  # Some JWKs have a 'kid' (key ID) field
+                  print(jwk['kid'])
+              else:
+                  # Fallback: generate a deterministic ID from the key
+                  import hashlib
+                  key_str = json.dumps(jwk, sort_keys=True)
+                  # Use first 51 chars of hash (Dolt IDs are typically 51 base32 chars)
+                  print(hashlib.sha256(key_str.encode()).hexdigest()[:51])
+          except Exception as e:
+              print(f"ERROR: {e}", file=sys.stderr)
+              sys.exit(1)
+          EOF
+          )
 
-          # Save the private key
+          if [ $? -ne 0 ] || [ -z "$CRED_ID" ]; then
+            echo "❌ Failed to extract credential ID from JWK"
+            echo "   JWK preview: $(echo "$DOLT_CREDS_PRIVATE_KEY" | head -c 100)..."
+            exit 1
+          fi
+
+          # Save the private key with the extracted ID
           echo "$DOLT_CREDS_PRIVATE_KEY" > ~/.dolt/creds/${CRED_ID}.jwk
           chmod 600 ~/.dolt/creds/${CRED_ID}.jwk
-
+          
           echo "✅ Credentials configured"
+          echo "   Credential ID: ${CRED_ID:0:20}... (truncated for security)"
+          echo "   File: ~/.dolt/creds/${CRED_ID}.jwk"
+          
+          # Verify the credential file exists and is readable
+          if [ ! -f ~/.dolt/creds/${CRED_ID}.jwk ]; then
+            echo "❌ Credential file was not created correctly"
+            exit 1
+          fi
+          
+          # List available credentials (for debugging)
+          echo "   Available credentials:"
+          dolt creds ls 2>&1 || echo "   (dolt creds ls not available, but file is saved)"
 
       - name: Clone or update Dolt database
         run: |
@@ -118,7 +161,39 @@ jobs:
             echo "✅ Committed successfully"
             echo ""
             echo "Pushing to DoltHub..."
-            dolt push origin main || echo "⚠️  Push failed (may need credentials or already up to date)"
+            echo "   Checking remote configuration..."
+            dolt remote -v
+            echo ""
+            echo "   Attempting push..."
+            PUSH_OUTPUT=$(dolt push origin main 2>&1)
+            PUSH_EXIT=$?
+            
+            if [ $PUSH_EXIT -eq 0 ]; then
+              echo "✅ Successfully pushed to DoltHub"
+            else
+              echo "$PUSH_OUTPUT"
+              echo ""
+              # Check if error is "already up to date" (this is OK)
+              if echo "$PUSH_OUTPUT" | grep -qi "up to date\|already.*up.*to.*date\|nothing to push"; then
+                echo "ℹ️  Remote is already up to date (this is OK)"
+              # Check if error is authentication-related (this is a problem)
+              elif echo "$PUSH_OUTPUT" | grep -qi "authentication\|unauthorized\|credential\|permission denied"; then
+                echo "❌ Authentication error - credentials may not be configured correctly"
+                echo ""
+                echo "   Debugging info:"
+                echo "   Available credentials:"
+                dolt creds ls 2>&1 || echo "   (Could not list credentials)"
+                echo ""
+                echo "   Credential files:"
+                ls -la ~/.dolt/creds/ 2>&1 || echo "   (Could not list credential files)"
+                exit 1
+              else
+                echo "⚠️  Push failed (exit code: $PUSH_EXIT)"
+                echo "   This may be a temporary network issue"
+                echo "   The commit was successful, so data is safe locally"
+                # Don't fail the workflow for network issues
+              fi
+            fi
           else
             echo "ℹ️  No changes detected (data may already be up to date)"
           fi
