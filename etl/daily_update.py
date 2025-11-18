@@ -62,15 +62,22 @@ def update_recent_data(days_back=7):
             print(f"   Found {len(recent_uva)} recent UVA records")
             
             if recent_uva:
+                inserted_count = 0
                 for item in recent_uva:
-                    db.insert_fx_rate(
+                    result = db.insert_fx_rate(
                         date=item['date'],
                         kind=item['kind'],
                         pair='UVA_ARS',
                         rate=item['rate']
                     )
-                updated_pairs.append('UVA_ARS')
-                print(f"   ✅ Updated UVA_ARS")
+                    if result.get('inserted', False):
+                        inserted_count += 1
+                
+                if inserted_count > 0:
+                    updated_pairs.append('UVA_ARS')
+                    print(f"   ✅ Updated UVA_ARS: {inserted_count} new records inserted")
+                else:
+                    print(f"   ℹ️  UVA_ARS: All records already exist (no new data)")
         
         # 2. Update USD data (all types)
         usd_types = [
@@ -85,28 +92,41 @@ def update_recent_data(days_back=7):
             usd_data = fetch_ambito_dolar(kind, start_str, end_str)
             
             if usd_data:
+                inserted_count = 0
                 for item in usd_data:
-                    db.insert_fx_rate(
+                    result = db.insert_fx_rate(
                         date=item['date'],
                         kind=item['kind'],
                         pair=pair,
                         rate=item['rate']
                     )
-                updated_pairs.append(pair)
-                print(f"   ✅ Updated {pair}: {len(usd_data)} records")
+                    if result.get('inserted', False):
+                        inserted_count += 1
+                
+                if inserted_count > 0:
+                    updated_pairs.append(pair)
+                    print(f"   ✅ Updated {pair}: {inserted_count} new records inserted (out of {len(usd_data)} processed)")
+                else:
+                    print(f"   ℹ️  {pair}: All records already exist (no new data)")
         
-        # 3. Data inserted successfully
+        # 3. Summary
         if updated_pairs:
-            print("\n💾 Data inserted into database")
+            print("\n💾 New data inserted into database")
             print(f"   Updated pairs: {', '.join(set(updated_pairs))}")
             print("\n💡 Dolt operations (add/commit/push) will be handled by:")
             print("   - GitHub Actions workflow (automatic)")
             print("   - Or manually via Dolt CLI: dolt add → dolt commit → dolt push")
+        else:
+            print("\nℹ️  No new data to insert (all records already exist)")
+            print("   This is normal if the data was already updated recently")
         
         print("\n" + "="*70)
         print("✅ DAILY UPDATE COMPLETED SUCCESSFULLY")
         print("="*70)
-        print(f"\nUpdated pairs: {', '.join(set(updated_pairs))}")
+        if updated_pairs:
+            print(f"\nUpdated pairs: {', '.join(set(updated_pairs))}")
+        else:
+            print("\nNo new data inserted (database already up to date)")
         print(f"Next run: Tomorrow at the same time")
         print("="*70 + "\n")
         

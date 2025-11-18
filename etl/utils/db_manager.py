@@ -192,22 +192,31 @@ class DoltDBManager:
     
     def insert_fx_rate(self, date: str, kind: str, pair: str, rate: float) -> Dict:
         """
-        Insert into fx_rate with INSERT IGNORE (equivalent to JS)
+        Insert into fx_rate with INSERT IGNORE
         
         Args:
             date: Date in format 'YYYY-MM-DD'
-            kind: Data type (e.g., 'UVA', 'USD_OFICIAL')
+            kind: Data type ('bid', 'ask', 'index')
             pair: Currency pair (e.g., 'UVA_ARS', 'USD_ARS')
             rate: Exchange rate value
         
         Returns:
-            Dictionary with affected_rows
+            Dictionary with 'inserted' (bool) indicating if row was actually inserted
         """
-        result = self.query(
-            "INSERT IGNORE INTO fx_rate (DATE, kind, pair, rate) VALUES (%s, %s, %s, %s)",
-            (date, kind, pair, rate)
-        )
-        return result[0] if result else {}
+        if not self.connection:
+            raise Exception("❌ No connection established. Call connect() first.")
+        
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute(
+                "INSERT IGNORE INTO fx_rate (DATE, kind, pair, rate) VALUES (%s, %s, %s, %s)",
+                (date, kind, pair, rate)
+            )
+            self.connection.commit()
+            inserted = cursor.rowcount > 0
+            return {'inserted': inserted, 'rowcount': cursor.rowcount}
+        finally:
+            cursor.close()
 
 
 if __name__ == "__main__":

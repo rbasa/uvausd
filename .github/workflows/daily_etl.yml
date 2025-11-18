@@ -104,12 +104,23 @@ jobs:
 
           # Commit changes if any
           cd macroeconomia
-          if dolt status --porcelain | grep -q .; then
+          echo "Checking for changes..."
+          dolt status
+          echo ""
+          echo "Checking diff..."
+          DIFF_OUTPUT=$(dolt diff --stat 2>&1 || true)
+          echo "$DIFF_OUTPUT"
+          
+          if echo "$DIFF_OUTPUT" | grep -q "Diff\|Rows\|Changes"; then
+            echo "✅ Changes detected, committing..."
             dolt add -A
             dolt commit -m "Daily ETL update $(date -u '+%Y-%m-%d %H:%M UTC')"
-            dolt push origin main || true
+            echo "✅ Committed successfully"
+            echo ""
+            echo "Pushing to DoltHub..."
+            dolt push origin main || echo "⚠️  Push failed (may need credentials or already up to date)"
           else
-            echo "No changes to commit"
+            echo "ℹ️  No changes detected (data may already be up to date)"
           fi
 
           # Stop server
