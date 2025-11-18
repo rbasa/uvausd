@@ -84,13 +84,27 @@ jobs:
           echo "$IMPORT_OUTPUT"
       
           # Extract credential ID from import output
-          CRED_ID=$(echo "$IMPORT_OUTPUT" | grep -i "credential id" | awk '{print $NF}' | head -n 1)
+          # Format: "Imported credential: <ID>" or "Credential ID: <ID>"
+          # Try multiple extraction methods
+          CRED_ID=$(echo "$IMPORT_OUTPUT" | awk '/[Ii]mported credential:/ {print $3}' | head -n 1)
+          
+          # If that didn't work, try "Credential ID:" format
+          if [ -z "$CRED_ID" ]; then
+            CRED_ID=$(echo "$IMPORT_OUTPUT" | awk '/[Cc]redential [Ii][Dd]:/ {print $3}' | head -n 1)
+          fi
+          
+          # If still empty, extract any alphanumeric string that looks like an ID (50+ chars)
+          if [ -z "$CRED_ID" ]; then
+            CRED_ID=$(echo "$IMPORT_OUTPUT" | grep -oE '[a-z0-9]{50,}' | head -n 1)
+          fi
       
           if [ -z "$CRED_ID" ]; then
             echo "❌ Could not extract CRED_ID from 'dolt creds import'"
             echo "   Import output: $IMPORT_OUTPUT"
             exit 1
           fi
+          
+          echo "   ✅ Extracted credential ID: ${CRED_ID:0:20}..."
       
           # Use the credential
           dolt creds use "$CRED_ID" || {
