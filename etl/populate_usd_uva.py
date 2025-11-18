@@ -71,16 +71,16 @@ def run_pair(symbol: str, data_rows: list, db: DoltDBManager, pair: str):
                 continue
         
         # 4. Dolt operations (use CLI for add/commit/push)
-        # add_res = db.dolt_add('fx_rate')
-        # commit_msg = f"fx_rate update {symbol} {to_iso_date_string(datetime.now())}"
-        # commit_res = db.dolt_commit(commit_msg)
-        # push_res = db.dolt_push()
+        add_res = db.dolt_add('fx_rate')
+        commit_msg = f"fx_rate update {symbol} {to_iso_date_string(datetime.now())}"
+        commit_res = db.dolt_commit(commit_msg)
+        push_res = db.dolt_push()
         
         print(f"\n✅ Completed {symbol}:")
         print(f"   - Records successfully inserted: {len(insert_results)}")
-        # print(f"   - dolt_add: {add_res}")
-        # print(f"   - dolt_commit: {commit_res}")
-        # print(f"   - dolt_push: {push_res}")
+        print(f"   - dolt_add: {add_res}")
+        print(f"   - dolt_commit: {commit_res}")
+        print(f"   - dolt_push: {push_res}")
         print(f"{'='*70}\n")
         
         return True
